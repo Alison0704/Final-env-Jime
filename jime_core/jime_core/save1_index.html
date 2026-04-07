@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JIM-E Robot Face</title>
+    <script src="https://cdn.jsdelivr.net/npm/eventemitter2@6.4.4/lib/eventemitter2.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/roslib@1/build/roslib.min.js"></script>
+    <style>
+        :root {
+            --eye-color: #00ff00;
+            --bg-color: #000000;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-color);
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Layer 1: The Camera Background */
+        #camera-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            display: none; /* Hidden by default */
+            z-index: 1;
+            background: black;
+        }
+
+        #camera-feed {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* Mirror effect for natural interaction */
+        }
+
+        /* Layer 2: The Robot Eyes */
+        .face-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            z-index: 2;
+            pointer-events: none; /* Let clicks pass through to buttons */
+        }
+
+        .eye {
+            width: 150px;
+            height: 150px;
+            background-color: var(--eye-color);
+            border-radius: 50%;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 50px var(--eye-color);
+        }
+
+        /* Layer 3: UI Buttons */
+        #ui-overlay {
+            position: fixed;
+            bottom: 10%;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            z-index: 3;
+        }
+
+        .btn-yes {
+            display: none;
+            padding: 25px 50px;
+            font-size: 24px;
+            font-weight: bold;
+            color: white;
+            background-color: #28a745;
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+            cursor: pointer;
+            pointer-events: auto;
+        }
+
+        /* Start Screen */
+        #start-gate {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            font-size: 2em;
+            text-align: center;
+        }
+
+        #status {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            font-size: 12px;
+            color: #555;
+            z-index: 101;
+        }
+    </style>
+</head>
+<body onclick="enableFullscreen()">
+
+    <div id="start-gate">TAP TO INITIALIZE ROBOT FACE</div>
+    <div id="status">Connecting to ROS...</div>
+
+    <div id="camera-container">
+        <img id="camera-feed" src="">
+    </div>
+
+    <div class="face-container" id="face-main">
+        <div class="eye left"></div>
+        <div class="eye right"></div>
+    </div>
+
+    <div id="ui-overlay">
+        <button id="yesBtn" class="btn-yes" onclick="sendYes(event)">YES, TAKE ME TO A TABLE</button>
+    </div>
+
+    <script>
+        const pi_ip = window.location.hostname;
+        const ros = new ROSLIB.Ros({ url: 'ws://' + pi_ip + ':9090' });
+
+        ros.on('connection', () => {
+            document.getElementById('status').innerText = 'Connected';
+            document.getElementById('status').style.color = 'green';
+        });
+
+        ros.on('error', () => {
+            document.getElementById('status').innerText = 'ROS ERROR';
+            document.getElementById('status').style.color = 'red';
+        });
+
+        // Publishers
+        const uiPub = new ROSLIB.Topic({
+            ros: ros,
+            name: '/ui_interaction',
+            messageType: 'std_msgs/String'
+        });
+
+        // Subscribers
+        const faceSub = new ROSLIB.Topic({
+            ros: ros,
+            name: '/robot_face',
+            messageType: 'std_msgs/String'
+        });
+
+        faceSub.subscribe((msg) => {
+            const faceContainer = document.getElementById('face-main');
+            const camContainer = document.getElementById('camera-container');
+            const camImg = document.getElementById('camera-feed');
+            const yesBtn = document.getElementById('yesBtn');
+            const streamUrl = "http://" + pi_ip + ":8080/stream?topic=/camera/processed_image&type=mjpeg";
+
+            switch(msg.data) {
+                case "SEARCHING_EYES":
+                    faceContainer.style.display = "flex";
+                    camContainer.style.display = "none";
+                    camImg.src = ""; // Cut stream to save bandwidth
+                    yesBtn.style.display = "none";
+                    document.documentElement.style.setProperty('--eye-color', '#00ff00');
+                    break;
+
+                case "SHOW_CLIENT_FEED":
+                    // THE CRITICAL SWITCH
+                    faceContainer.style.display = "none"; 
+                    camContainer.style.display = "block";
+                    if (camImg.src !== streamUrl) camImg.src = streamUrl;
+                    yesBtn.style.display = "none";
+                    break;
+
+                case "SHOW_UI_BUTTONS":
+                    faceContainer.style.display = "flex";
+                    camContainer.style.display = "none";
+                    camImg.src = "";
+                    yesBtn.style.display = "block";
+                    document.documentElement.style.setProperty('--eye-color', '#00d4ff');
+                    break;
+            }
+        });
+
+        function sendYes(event) {
+            event.stopPropagation();
+            uiPub.publish(new ROSLIB.Message({ data: "YES" }));
+            document.getElementById('yesBtn').innerText = "THANK YOU!";
+            setTimeout(() => {
+                document.getElementById('yesBtn').style.display = "none";
+                document.getElementById('yesBtn').innerText = "YES, TAKE ME TO A TABLE";
+            }, 2000);
+        }
+
+        function enableFullscreen() {
+            document.getElementById('start-gate').style.display = 'none';
+            if (document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen();
+            }
+        }
+    </script>
+</body>
+</html>
