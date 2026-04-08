@@ -31,10 +31,18 @@ class HostRobotLogic(Node):
         self.state = RobotState.CLIENT_CHECK
         self.prev_state = None
 
-        # --- ARUCO Setup ---
+        # --- ARUCO Setup (Version Compatible) ---
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
-        self.aruco_params = cv2.aruco.DetectorParameters()
-        self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.aruco_params)
+
+        try:
+            # Newer OpenCV (4.7+)
+            self.aruco_params = cv2.aruco.DetectorParameters()
+            self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.aruco_params)
+            self.use_new_aruco = True
+        except AttributeError:
+            # Older OpenCV (< 4.7)
+            self.aruco_params = cv2.aruco.DetectorParameters_create()
+            self.use_new_aruco = False
         
         # --- Camera Setup ---
         self.cap = cv2.VideoCapture(0)
@@ -52,10 +60,12 @@ class HostRobotLogic(Node):
         self.table_id = 42 
         self.table_detected = False
         self.table_x_offset = 0.0
+        self.table_pixel_width = 0.0
 
         self.home_id = 25
         self.home_detected = False
         self.home_x_offset = 0.0
+        self.home_pixel_width = 0.0
 
         # --- Publishers ---
         self.face_pub = self.create_publisher(String, '/robot_face', 10)
@@ -97,7 +107,7 @@ class HostRobotLogic(Node):
             (x, y, w, h) = faces[0]
             face_width = w
             center_x = x + (w/2)
-            self.target_x_offset = (center_x - (frame.shape[1]/2)) / (frame.shape[1]/2)
+            self.human_x_offset = (center_x - (frame.shape[1]/2)) / (frame.shape[1]/2)
             cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
         else:
             self.lost_tracker_count += 1
@@ -108,7 +118,8 @@ class HostRobotLogic(Node):
         self.table_detected = False
         self.home_detected = False
 
-        for i in range(len(ids)):
+        if ids is not None:
+            for i in range(len(ids)):
                 marker_id = ids[i][0]
                 
                 # Calculate common values
@@ -116,31 +127,31 @@ class HostRobotLogic(Node):
 
                 width_top = np.linalg.norm(c[0] - c[1])
                 width_bottom = np.linalg.norm(c[3] - c[2])
-                avg_width = (width_top + width_bottom) / 2
+                marker_width = (width_top + width_bottom) / 2
                 
                 marker_center_x = np.mean(c[:, 0])
                 # Normalize offset: -1.0 (left) to 1.0 (right)
                 x_offset = (marker_center_x - (frame.shape[1]/2)) / (frame.shape[1]/2)
 
                 # --- TABLE TARGET (ID 42) ---
-                        if marker_id == self.table_id:
-                            self.table_detected = True
-                            self.table_x_offset = x_offset
-                            self.table_pixel_width = marker_width
-                            
-                            # Visual feedback for Table
-                            cv2.putText(frame, "TABLE TARGET", (int(c[0][0]), int(c[0][1]) - 10),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+                if marker_id == self.table_id:
+                    self.table_detected = True
+                    self.table_x_offset = x_offset
+                    self.table_pixel_width = marker_width
+                    
+                    # Visual feedback for Table
+                    cv2.putText(frame, "TABLE TARGET", (int(c[0][0]), int(c[0][1]) - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
                 # --- HOME TARGET (ID 25) ---
-                        elif marker_id == self.home_id:
-                            self.home_detected = True
-                            self.home_x_offset = x_offset
-                            self.home_pixel_width = marker_width
-                            
-                            # Visual feedback for Home
-                            cv2.putText(frame, "HOME STATION", (int(c[0][0]), int(c[0][1]) - 10),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                elif marker_id == self.home_id:
+                    self.home_detected = True
+                    self.home_x_offset = x_offset
+                    self.home_pixel_width = marker_width
+                    
+                    # Visual feedback for Home
+                    cv2.putText(frame, "HOME STATION", (int(c[0][0]), int(c[0][1]) - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
         
         # Stream the processed frame
         self.img_pub.publish(self.bridge.cv2_to_imgmsg(frame, "bgr8"))
@@ -161,11 +172,11 @@ class HostRobotLogic(Node):
                 self.state = RobotState.CLIENT_CHECK
             else:
                 self.set_face("SHOW_CLIENT_FEED")
-                if abs(self.target_x_offset) < 0.2:
+                if abs(self.human_x_offset) < 0.2:
                     self.send_cmd("STOP")
                     self.state = RobotState.CLIENT_MOVE
                 else:
-                    if self.target_x_offset < 0:
+                    if self.human_x_offset < 0:
                         self.send_cmd("LEFT")
                     else:
                         self.send_cmd("RIGHT")
@@ -178,7 +189,7 @@ class HostRobotLogic(Node):
                 self.set_face("SHOW_FEED")
                 if self.current_distance <= 50.0 or face_width > 180:
                     self.send_cmd("STOP")
-                    self.state = RobotState.OPTION_SELECT
+                    self.state = RobotState.CLIENT_OPTION_SELECT
                 else:
                     self.send_cmd("FORWARD")
 
@@ -237,12 +248,6 @@ class HostRobotLogic(Node):
                 self.state = RobotState.HOME_CHECK
 
         # === HOME_CHECK ===
-
-        # === HOME_ALIGN ===
-
-        # === HOME_SELECT ===
-
-        # === HOME_CHECK ===
         elif self.state == RobotState.HOME_CHECK:
             self.set_face("SEARCHING_EYES")
             self.send_cmd("LEFT")
@@ -275,7 +280,7 @@ class HostRobotLogic(Node):
                 self.state = RobotState.CLIENT_CHECK
             elif not self.home_detected:
                 # If we lose the marker while moving, go back to checking
-                self.state = RobotState.TABLE_CHECK
+                self.state = RobotState.HOME_CHECK
             else:
                 self.send_cmd("FORWARD")
         
