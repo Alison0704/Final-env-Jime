@@ -12,8 +12,13 @@ class RobotState(Enum):
     CLIENT_CHECK = 1
     CLIENT_ALIGN = 2
     CLIENT_MOVE = 3
-    OPTION_SELECT = 4
+    CLIENT_OPTION_SELECT = 4
     TABLE_CHECK = 5
+    TABLE_ALIGN = 6
+    TABLE_OPTION_SELECT = 7
+    HOME_CHECK = 8
+    HOME_ALIGN = 9
+    HOME_MOVE = 10
 
 class HostRobotLogic(Node):
     def __init__(self):
@@ -27,10 +32,7 @@ class HostRobotLogic(Node):
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
         self.aruco_params = cv2.aruco.DetectorParameters()
         self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.aruco_params)
-        
-        self.table_id = 42 
-        self.table_detected = False
-        self.table_x_offset = 0.0
+    
         
         # --- Camera Setup ---
         self.cap = cv2.VideoCapture(0)
@@ -40,11 +42,20 @@ class HostRobotLogic(Node):
         self.face_cascade = cv2.CascadeClassifier(xml_path)
         
         # --- State Variables ---
-        self.human_detected = False
-        self.target_x_offset = 0.0
-        self.current_distance = 100.0  
         self.ui_confirmed = False
         self.lost_tracker_count = 0 
+        
+        self.human_detected = False
+        self.human_x_offset = 0.0
+        self.current_distance = 100.0  
+
+        self.table_id = 42 
+        self.table_detected = False
+        self.table_x_offset = 0.0
+
+        self.home_id = 10 
+        self.home_detected = False
+        self.home_x_offset = 0.0
 
         # --- Publishers ---
         self.face_pub = self.create_publisher(String, '/robot_face', 10)
@@ -58,11 +69,6 @@ class HostRobotLogic(Node):
 
         self.timer = self.create_timer(0.1, self.main_loop)
         self.get_logger().info("JIM-E LOGIC: State Machine Active.")
-
-        # ----Test Pi to ESP32 commands----
-        msg = String()
-        msg.data = "LEFT"
-        self.cmd_publisher.publish(msg)
 
     def dist_cb(self, msg): self.current_distance = msg.data
     def ui_cb(self, msg):
@@ -80,7 +86,7 @@ class HostRobotLogic(Node):
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # 1. Face Detection Logic
+        # Face Detection Logic
         faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
         face_width = 0
         if len(faces) > 0:
@@ -95,7 +101,7 @@ class HostRobotLogic(Node):
             self.lost_tracker_count += 1
             if self.lost_tracker_count > 15: self.human_detected = False
 
-        # 2. ArUco (Table) Detection Logic
+        # ArUco (Table) Detection Logic
         corners, ids, rejected = self.detector.detectMarkers(frame)
         self.table_detected = False
         if ids is not None:
