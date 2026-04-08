@@ -43,11 +43,23 @@ class HostRobotLogic(Node):
             # Older OpenCV (< 4.7)
             self.aruco_params = cv2.aruco.DetectorParameters_create()
             self.use_new_aruco = False
+
+
+        # --- MediaPipe Face Setup (Replaces Haar Cascade) ---
+                self.mp_face_detection = mp.solutions.face_detection
+                self.mp_drawing = mp.solutions.drawing_utils
+                # model_selection=0 is optimized for short range (<2m), ideal for Pi 4
+                self.face_detector = self.mp_face_detection.FaceDetection(
+                    model_selection=0, 
+                    min_detection_confidence=0.5
+                )
+
         
         # --- Camera Setup ---
         self.cap = cv2.VideoCapture(0)
-        xml_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        self.face_cascade = cv2.CascadeClassifier(xml_path)
+        # Set resolution to 320x240 for significant Pi 4 speed boost
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
         
         # --- State Variables ---
         self.ui_confirmed = False
@@ -56,6 +68,7 @@ class HostRobotLogic(Node):
         self.human_detected = False
         self.human_x_offset = 0.0
         self.current_distance = 100.0  
+        self.face_pixel_width = 0
 
         self.table_id = 42 
         self.table_detected = False
@@ -98,23 +111,56 @@ class HostRobotLogic(Node):
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # Face Detection Logic
-        faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
-        face_width = 0
-        if len(faces) > 0:
-            self.lost_tracker_count = 0
-            self.human_detected = True
-            (x, y, w, h) = faces[0]
-            face_width = w
-            center_x = x + (w/2)
-            self.human_x_offset = (center_x - (frame.shape[1]/2)) / (frame.shape[1]/2)
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-        else:
-            self.lost_tracker_count += 1
-            if self.lost_tracker_count > 15: self.human_detected = False
+       # # Face Detection Logic
+       # faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
+       # face_width = 0
+       # if len(faces) > 0:
+       #     self.lost_tracker_count = 0
+       #     self.human_detected = True
+       #     (x, y, w, h) = faces[0]
+       #     face_width = w
+       #     center_x = x + (w/2)
+       #     self.human_x_offset = (center_x - (frame.shape[1]/2)) / (frame.shape[1]/2)
+       #     cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+       # else:
+       #     self.lost_tracker_count += 1
+       #     if self.lost_tracker_count > 15: self.human_detected = False
+
+       # --- MediaPipe Face Detection ---
+               rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+               results = self.face_detector.process(rgb_frame)
+               
+               found_face_this_frame = False
+               if results.detections:
+                   self.lost_tracker_count = 0
+                   self.human_detected = True
+                   found_face_this_frame = True
+                   
+                   # Use the first detected face
+                   detection = results.detections[0]
+                   bbox = detection.location_data.relative_bounding_box
+
+                   # Normalize offset: -1.0 (left) to 1.0 (right)
+                   center_x = bbox.xmin + (bbox.width / 2)
+                   self.human_x_offset = (center_x - 0.5) * 2
+                   
+                   # Approximate face width in pixels for distance logic
+                   self.face_pixel_width = bbox.width * frame.shape[1]
+                   
+                   # Draw for the debug stream
+                   self.mp_drawing.draw_detection(frame, detection)
+               else:
+                   self.lost_tracker_count += 1
+                   if self.lost_tracker_count > 10: 
+                       self.human_detected = False
+                       self.face_pixel_width = 0
 
         # ArUco Detection Logic
-        corners, ids, rejected = self.detector.detectMarkers(frame)
+        if self.detector:
+                    corners, ids, rejected = self.detector.detectMarkers(frame)
+                else:
+                    corners, ids, rejected = cv2.aruco.detectMarkers(frame, self.aruco_dict, parameters=self.aruco_params)
+                    
         self.table_detected = False
         self.home_detected = False
 
@@ -125,13 +171,8 @@ class HostRobotLogic(Node):
                 # Calculate common values
                 c = corners[i][0]
 
-                width_top = np.linalg.norm(c[0] - c[1])
-                width_bottom = np.linalg.norm(c[3] - c[2])
-                marker_width = (width_top + width_bottom) / 2
-                
-                marker_center_x = np.mean(c[:, 0])
-                # Normalize offset: -1.0 (left) to 1.0 (right)
-                x_offset = (marker_center_x - (frame.shape[1]/2)) / (frame.shape[1]/2)
+                marker_width = (np.linalg.norm(c[0]-c[1]) + np.linalg.norm(c[3]-c[2])) / 2
+                x_offset = (np.mean(c[:, 0]) - (frame.shape[1]/2)) / (frame.shape[1]/2)
 
                 # --- TABLE TARGET (ID 42) ---
                 if marker_id == self.table_id:
@@ -171,15 +212,12 @@ class HostRobotLogic(Node):
             if not self.human_detected: 
                 self.state = RobotState.CLIENT_CHECK
             else:
-                self.set_face("SHOW_CLIENT_FEED")
+                self.set_face("SHOW_FEED")
                 if abs(self.human_x_offset) < 0.2:
                     self.send_cmd("STOP")
                     self.state = RobotState.CLIENT_MOVE
                 else:
-                    if self.human_x_offset < 0:
-                        self.send_cmd("LEFT")
-                    else:
-                        self.send_cmd("RIGHT")
+                    self.send_cmd("LEFT" if self.human_x_offset < 0 else "RIGHT")
                     
         # === CLIENT_MOVE ===
         elif self.state == RobotState.CLIENT_MOVE:
@@ -187,7 +225,7 @@ class HostRobotLogic(Node):
                 self.state = RobotState.CLIENT_CHECK
             else:
                 self.set_face("SHOW_FEED")
-                if self.current_distance <= 50.0 or face_width > 180:
+                if self.current_distance <= 50.0 or self.face_pixel_width > 120:
                     self.send_cmd("STOP")
                     self.state = RobotState.CLIENT_OPTION_SELECT
                 else:

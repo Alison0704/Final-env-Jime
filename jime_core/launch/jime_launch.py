@@ -65,9 +65,16 @@ def generate_launch_description():
         # Ultrasonic Driver Node
         Node(
             package='jime_core',
-            executable='ultrasonic_driver',
+            executable='ultrasonic',
             name='ultrasonic_node',
             output='screen'
         ),
+
+        Node(
+            package='jime_core',
+            executable='bridge_node',
+            name='esp32_bridge_driver',
+            parameters=[{'port': '/dev/ttyUSB0'}]
+        )
             
     ])

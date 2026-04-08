@@ -33,7 +33,8 @@ setup(
             'vision = jime_core.vision_node:main',
             'streamer = jime_core.web_streamer:main',
             'start_bridge = jime_core.start_bridge:main',
-            'led_commander = jime_core.led_commander:main'
+            'led_commander = jime_core.led_commander:main',
+            'bridge_node = jime_core.esp32_bridge:main'
         ],
     },
 )

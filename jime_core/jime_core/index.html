@@ -91,24 +91,40 @@
         .look-right .pupil { transform: translateX(38px); }
         .is-blinking .eye { transform: scaleY(0); }
 
-        /* --- Mouth --- */
-        .mouth {
-            width: 90px;
-            height: 42px;
-            background-color: var(--eye-color);
-            border-radius: 8px 8px 45px 45px; 
-            box-shadow: 0 0 25px var(--eye-color);
-            transition: transform 0.2s ease;
-        }
+		.mouth {
+		    width: 90px;
+		    height: 40px;
+		    background-color: var(--eye-color);
+		    border-radius: 10px 10px 40px 40px; /* Default neutral */
+		    box-shadow: 0 0 20px var(--eye-color);
+		    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* Smooth pop-in effect */
+		}
 
-        .is-talking .mouth {
-            animation: talk-pulse 0.25s infinite alternate ease-in-out;
-        }
+		/* The Smile State */
+		.is-smiling .mouth {
+		    width: 110px;
+		    height: 50px;
+		    border-radius: 10px 10px 80px 80px; /* Deeper curve */
+		    transform: translateY(5px) scale(1.1); /* Slight dip and grow */
+		}
 
-        @keyframes talk-pulse {
-            from { transform: scaleY(1); }
-            to { transform: scaleY(0.4); }
-        }
+		/* The Talking State (Your previous pulsing animation) */
+		.is-talking .mouth {
+		    animation: talk-pulse 0.25s infinite alternate ease-in-out;
+		}
+		
+		@keyframes talk-animation {
+		    0% { 
+		        height: 10px; 
+		        width: 60px; 
+		        border-radius: 50%; /* Look like an 'O' */
+		    }
+		    100% { 
+		        height: 45px; 
+		        width: 95px; 
+		        border-radius: 10px 10px 45px 45px; /* Look like a wide smile */
+		    }
+		}
 
         /* --- UI Overlay --- */
         #ui-overlay {
@@ -228,6 +244,12 @@
                 case "LOOK_RIGHT":
                     face.style.display = "flex";
                     face.classList.add('look-right');
+                    break;
+
+                case "SMILE":
+                    face.style.display = "flex";
+                    camCont.style.display = "none";
+                    mouth.classList.add('is-smiling');
                     break;
 
                 case "TALKING":

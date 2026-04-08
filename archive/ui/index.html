@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://cdn.jsdelivr.net/npm/eventemitter2@6.4.4/lib/eventemitter2.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/roslib@1/build/roslib.min.js"></script>
+    <style>
+        body { background: black; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+        .eye { width: 150px; height: 150px; background: cyan; border-radius: 50%; margin: 50px; transition: all 0.3s; }
+        .HAPPY { height: 80px; border-radius: 150px 150px 20px 20px; }
+        .SURPRISED { width: 180px; height: 180px; }
+        .SEARCHING { width: 150px; height: 20px; }
+    </style>
+</head>
+<body>
+    <div id="left" class="eye"></div>
+    <div id="right" class="eye"></div>
+
+    <script>
+        const ros = new ROSLIB.Ros({ url : 'ws://localhost:9090' });
+        const listener = new ROSLIB.Topic({ ros : ros, name : '/robot_face', messageType : 'std_msgs/String' });
+
+        listener.subscribe(function(message) {
+            const eyes = document.querySelectorAll('.eye');
+            eyes.forEach(e => {
+                e.className = 'eye ' + message.data;
+            });
+        });
+    </script>
+</body>
+</html>
