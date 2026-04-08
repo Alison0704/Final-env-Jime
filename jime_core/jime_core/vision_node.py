@@ -13,12 +13,12 @@ class VisionBridge(Node):
         self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         
         # Publishers
-        self.img_pub = self.create_publisher(Image, '/camera/processed_image', 10)
+        self.img_pub = self.create_publisher(Image, '/camera_processed_image', 10)
         self.detect_pub = self.create_publisher(Bool, '/customer_detected', 10)
         self.face_state_pub = self.create_publisher(String, '/robot_face', 10)
-        self.offset_pub = self.create_publisher(Float32, '/camera/target_offset', 10)
+        self.offset_pub = self.create_publisher(Float32, '/camera_target_offset', 10)
 
-        # Subscriber (Assuming you started v4l2_camera_node)
+        # Subscriber 
         self.create_subscription(Image, '/image_raw', self.process_frame, 10)
         self.get_logger().info("Vision Bridge Online - Looking for faces...")
 

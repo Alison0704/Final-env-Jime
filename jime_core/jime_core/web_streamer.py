@@ -13,7 +13,7 @@ from ultralytics import YOLO
 app = Flask(__name__)
 latest_frame = None
 bridge = CvBridge()
-current_state = "IDLE"
+current_state = "CLIENT_CHECK"
 
 # Load YOLO model (Nano version for Pi performance)
 model = YOLO('/home/ubuntu/ros2_ws/yolov8n.pt')
@@ -22,7 +22,7 @@ class WebStreamer(Node):
     def __init__(self):
         super().__init__('web_streamer')
         
-        # 1. Subscribe to the COMPRESSED topic found in your 'topic list'
+        # Subscribe to the COMPRESSED topic found in your 'topic list'
         self.subscription = self.create_subscription(
             CompressedImage, 
             '/camera/image_raw/compressed', 

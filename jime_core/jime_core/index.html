@@ -8,7 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/roslib@1/build/roslib.min.js"></script>
     <style>
         :root {
-            --eye-color: #00f5d4; /* Authentic Teal */
+            --eye-color: #00f5d4; 
             --bg-color: #000000;
         }
 
@@ -206,7 +206,7 @@
             const greet = document.getElementById('greeting-text');
             const yesBtn = document.getElementById('yesBtn');
             const mouth = document.getElementById('mouth-main');
-            const streamUrl = "http://" + pi_ip + ":8080/stream?topic=/camera/processed_image&type=mjpeg";
+            const streamUrl = "http://" + pi_ip + ":8080/stream?topic=/camera_processed_image&type=mjpeg";
 
             // Reset States
             greet.style.display = "none";
@@ -235,7 +235,7 @@
                     face.classList.add('is-talking');
                     break;
 
-                case "SHOW_CLIENT_FEED":
+                case "SHOW_FEED":
                     face.style.display = "none"; 
                     camCont.style.display = "block";
                     if (camImg.src !== streamUrl) camImg.src = streamUrl;

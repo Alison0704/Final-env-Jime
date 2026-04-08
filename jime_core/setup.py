@@ -12,8 +12,7 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        # These now work because of the imports above
-        (os.path.join('share', package_name, 'launch'), glob('launch/jime_launch.py')),
+        (os.path.join('share', package_name, 'launch'), glob('launch/*.py')),
         (os.path.join('share', package_name, 'ui'), glob('ui/*')),
     ],
     install_requires=['setuptools'],
