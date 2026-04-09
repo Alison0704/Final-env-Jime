@@ -35,6 +35,7 @@ setup(
             'start_bridge = jime_core.start_bridge:main',
             'led_commander = jime_core.led_commander:main',
             'bridge_node = jime_core.esp32_bridge:main',
+            'state_monitor = jime_core.state_monitor:main',
         ],
     },
 )

@@ -91,11 +91,6 @@ class HostRobotLogic(Node):
         # --- Subscriptions ---
         self.create_subscription(Float32, '/ultrasonic_distance', self.dist_cb, 10)
         self.create_subscription(String, '/ui_interaction', self.ui_cb, 10)
-        self.subscription = self.create_subscription(
-            Image,
-            '/image_raw',  
-            self.camera_callback,
-            10)
 
         self.timer = self.create_timer(0.1, self.main_loop)
         self.get_logger().info("JIM-E LOGIC: State Machine Active.")
@@ -114,61 +109,17 @@ class HostRobotLogic(Node):
         self.face_pub.publish(String(data=face_cmd))
 
     def publish_status(self):
-        #if self.state != self.prev_state:
-        status_msg = f"STATE: {self.state.name} | OBSTACLE: {self.obstacle_detected}"
-        self.status_pub.publish(String(data=status_msg))
-    
-        # Keep the logger inside the 'if' so your terminal doesn't get flooded
         if self.state != self.prev_state:
-            self.get_logger().info(f"Transitioned to {self.state.name}")
-            self.prev_state = self.state
-
-    def camera_callback(self, msg):
-        frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
-        # 1. Detect and Draw Faces (MediaPipe)
-        results = self.face_detector.process(rgb_frame)
-        self.human_detected = False
-
-        if results.detections:
-            self.human_detected = True
-            for detection in results.detections:
-                # Draws boxes + 6 landmarks (eyes, nose, etc.)
-                self.mp_drawing.draw_detection(frame, detection)
-                
-                # Optional: Add custom "FACE" label
-                bbox = detection.location_data.relative_bounding_box
-                ih, iw, _ = frame.shape
-                x, y = int(bbox.xmin * iw), int(bbox.ymin * ih)
-                cv2.putText(frame, "HUMAN", (x, y - 10), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-        # 2. Detect and Draw ArUco Markers
-        if self.detector:
-            corners, ids, rejected = self.detector.detectMarkers(frame)
-        else:
-            corners, ids, rejected = cv2.aruco.detectMarkers(frame, self.aruco_dict, parameters=self.aruco_params)
-    
-        if ids is not None:
-            # Standard OpenCV helper to draw square + ID for every marker found
-            cv2.aruco.drawDetectedMarkers(frame, corners, ids)
+            # Create a detailed status string
+            status_msg = f"STATE: {self.state.name} | OBSTACLE: {self.obstacle_detected}"
             
-            # Determine specific target logic (Table/Home)
-            for i, marker_id in enumerate(ids.flatten()):
-                if marker_id == self.table_id:
-                    self.table_detected = True
-                elif marker_id == self.home_id:
-                    self.home_detected = True
-
-        # 3. Handle Screen Switching Signal
-        if self.human_detected or ids is not None:
-            self.set_face("SHOW_FEED") 
-        else:
-            self.set_face("SEARCHING_EYES")
-    
-        # 4. Stream to Web
-        self.img_pub.publish(self.bridge.cv2_to_imgmsg(frame, "bgr8"))
+            # Publish to ROS 2
+            self.status_pub.publish(String(data=status_msg))
+            
+            # Log to terminal for SSH monitoring
+            self.get_logger().info(f"Transitioned to {self.state.name}")
+            
+            self.prev_state = self.state
 
     def main_loop(self):
         ret, frame = self.cap.read()
@@ -176,50 +127,50 @@ class HostRobotLogic(Node):
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # # Face Detection Logic
-        # faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
-        # face_width = 0
-        # if len(faces) > 0:
-        #     self.lost_tracker_count = 0
-        #     self.human_detected = True
-        #     (x, y, w, h) = faces[0]
-        #     face_width = w
-        #     center_x = x + (w/2)
-        #     self.human_x_offset = (center_x - (frame.shape[1]/2)) / (frame.shape[1]/2)
-        #     cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-        # else:
-        #     self.lost_tracker_count += 1
-        #     if self.lost_tracker_count > 15: self.human_detected = False
+       # # Face Detection Logic
+       # faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
+       # face_width = 0
+       # if len(faces) > 0:
+       #     self.lost_tracker_count = 0
+       #     self.human_detected = True
+       #     (x, y, w, h) = faces[0]
+       #     face_width = w
+       #     center_x = x + (w/2)
+       #     self.human_x_offset = (center_x - (frame.shape[1]/2)) / (frame.shape[1]/2)
+       #     cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+       # else:
+       #     self.lost_tracker_count += 1
+       #     if self.lost_tracker_count > 15: self.human_detected = False
 
-        # --- MediaPipe Face Detection ---
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = self.face_detector.process(rgb_frame)
+       # --- MediaPipe Face Detection ---
+       rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+       results = self.face_detector.process(rgb_frame)
+       
+       found_face_this_frame = False
+       
+       if results.detections:
+           self.lost_tracker_count = 0
+           self.human_detected = True
+           found_face_this_frame = True
+           
+           # Use the first detected face
+           detection = results.detections[0]
+           bbox = detection.location_data.relative_bounding_box
 
-        found_face_this_frame = False
-
-        if results.detections:
-            self.lost_tracker_count = 0
-            self.human_detected = True
-            found_face_this_frame = True
-
-            # Use the first detected face
-            detection = results.detections[0]
-            bbox = detection.location_data.relative_bounding_box
-
-            # Normalize offset: -1.0 (left) to 1.0 (right)
-            center_x = bbox.xmin + (bbox.width / 2)
-            self.human_x_offset = (center_x - 0.5) * 2
-
-            # Approximate face width in pixels for distance logic
-            self.face_pixel_width = bbox.width * frame.shape[1]
-
-            # Draw for the debug stream
-            self.mp_drawing.draw_detection(frame, detection)
-        else:
-            self.lost_tracker_count += 1
-            if self.lost_tracker_count > 10:
-                self.human_detected = False
-                self.face_pixel_width = 0
+           # Normalize offset: -1.0 (left) to 1.0 (right)
+           center_x = bbox.xmin + (bbox.width / 2)
+           self.human_x_offset = (center_x - 0.5) * 2
+           
+           # Approximate face width in pixels for distance logic
+           self.face_pixel_width = bbox.width * frame.shape[1]
+           
+           # Draw for the debug stream
+           self.mp_drawing.draw_detection(frame, detection)
+       else:
+           self.lost_tracker_count += 1
+           if self.lost_tracker_count > 10: 
+               self.human_detected = False
+               self.face_pixel_width = 0
 
         # ArUco Detection Logic
         if self.detector:
@@ -408,4 +359,3 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
-

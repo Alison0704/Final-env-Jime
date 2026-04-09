@@ -9,10 +9,10 @@ def generate_launch_description():
 
     return LaunchDescription([
         # Rosbridge (Android to Pi Communication)
-        ExecuteProcess(
-            cmd=['ros2', 'launch', 'rosbridge_server', 'rosbridge_websocket_launch.xml'],
-            output='screen'
-        ),
+        #ExecuteProcess(
+        #    cmd=['ros2', 'launch', 'rosbridge_server', 'rosbridge_websocket_launch.xml'],
+        #    output='screen'
+        #),
         # Allows HTML to talk to ROS2 via WebSockets
         Node(
             package='rosbridge_server',

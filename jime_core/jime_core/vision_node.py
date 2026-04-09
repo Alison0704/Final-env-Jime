@@ -32,7 +32,7 @@ class VisionBridge(Node):
 
         if found:
             # Send trigger to HTML to show camera
-            self.face_state_pub.publish(String(data="SHOW_CLIENT_FEED"))
+            self.face_state_pub.publish(String(data="SHOW_FEED"))
             
             # Draw box and calculate offset for ALIGNMENT
             (x, y, w, h) = faces[0]
