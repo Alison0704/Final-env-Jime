@@ -49,9 +49,16 @@ def generate_launch_description():
         ),
 
         # Robot Logic (The Brain)
-        ExecuteProcess(
-            cmd=['python3', 'host_robot_logic.py'],
-            cwd=core_path,
+        #ExecuteProcess(
+        #    cmd=['python3', 'host_robot_logic.py'],
+        #    cwd=core_path,
+        #    output='screen'
+        #),
+
+        Node(
+            package='jime_core',
+            executable='brain',  # Matches the setup.py entry point
+            name='jime_brain',
             output='screen'
         ),
         

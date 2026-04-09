@@ -7,7 +7,6 @@ from cv_bridge import CvBridge
 import cv2
 import os
 import numpy as np
-import mediapipe as mp
 
 class RobotState(Enum):
     #CLIENT
@@ -31,8 +30,6 @@ class HostRobotLogic(Node):
         self.bridge = CvBridge()
         self.state = RobotState.CLIENT_CHECK
         self.prev_state = None
-        self.obstacle_detected = False
-        self.emergency_stop = False
 
         # --- ARUCO Setup (Version Compatible) ---
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
@@ -48,10 +45,14 @@ class HostRobotLogic(Node):
             self.use_new_aruco = False
 
 
-        # --- MediaPipe Setup ---
-        self.mp_face_detection = mp.solutions.face_detection
-        self.mp_drawing = mp.solutions.drawing_utils
-        self.face_detector = self.mp_face_detection.FaceDetection(model_selection=0, min_detection_confidence=0.5)
+        # --- MediaPipe Face Setup (Replaces Haar Cascade) ---
+                self.mp_face_detection = mp.solutions.face_detection
+                self.mp_drawing = mp.solutions.drawing_utils
+                # model_selection=0 is optimized for short range (<2m), ideal for Pi 4
+                self.face_detector = self.mp_face_detection.FaceDetection(
+                    model_selection=0, 
+                    min_detection_confidence=0.5
+                )
 
         
         # --- Camera Setup ---
@@ -66,7 +67,7 @@ class HostRobotLogic(Node):
         
         self.human_detected = False
         self.human_x_offset = 0.0
-        self.current_distance = 300.0  
+        self.current_distance = 100.0  
         self.face_pixel_width = 0
 
         self.table_id = 42 
@@ -79,14 +80,11 @@ class HostRobotLogic(Node):
         self.home_x_offset = 0.0
         self.home_pixel_width = 0.0
 
-        self.obstacle_detected = False
-
         # --- Publishers ---
         self.face_pub = self.create_publisher(String, '/robot_face', 10)
         self.state_pub = self.create_publisher(String, '/robot_current_state', 10)
         self.img_pub = self.create_publisher(Image, '/camera_processed_image', 10)
         self.cmd_publisher = self.create_publisher(String, 'robot_cmd', 10)
-        self.status_pub = self.create_publisher(String, '/robot_status', 10)
 
         # --- Subscriptions ---
         self.create_subscription(Float32, '/ultrasonic_distance', self.dist_cb, 10)
@@ -97,7 +95,6 @@ class HostRobotLogic(Node):
 
     def dist_cb(self, msg): 
         self.current_distance = msg.data
-        self.obstacle_detected = self.current_distance < 50.0
         
     def ui_cb(self, msg):
         if msg.data == "YES": self.ui_confirmed = True
@@ -107,19 +104,6 @@ class HostRobotLogic(Node):
 
     def set_face(self, face_cmd):
         self.face_pub.publish(String(data=face_cmd))
-
-    def publish_status(self):
-        if self.state != self.prev_state:
-            # Create a detailed status string
-            status_msg = f"STATE: {self.state.name} | OBSTACLE: {self.obstacle_detected}"
-            
-            # Publish to ROS 2
-            self.status_pub.publish(String(data=status_msg))
-            
-            # Log to terminal for SSH monitoring
-            self.get_logger().info(f"Transitioned to {self.state.name}")
-            
-            self.prev_state = self.state
 
     def main_loop(self):
         ret, frame = self.cap.read()
@@ -143,40 +127,39 @@ class HostRobotLogic(Node):
        #     if self.lost_tracker_count > 15: self.human_detected = False
 
        # --- MediaPipe Face Detection ---
-       rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-       results = self.face_detector.process(rgb_frame)
-       
-       found_face_this_frame = False
-       
-       if results.detections:
-           self.lost_tracker_count = 0
-           self.human_detected = True
-           found_face_this_frame = True
-           
-           # Use the first detected face
-           detection = results.detections[0]
-           bbox = detection.location_data.relative_bounding_box
+               rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+               results = self.face_detector.process(rgb_frame)
+               
+               found_face_this_frame = False
+               if results.detections:
+                   self.lost_tracker_count = 0
+                   self.human_detected = True
+                   found_face_this_frame = True
+                   
+                   # Use the first detected face
+                   detection = results.detections[0]
+                   bbox = detection.location_data.relative_bounding_box
 
-           # Normalize offset: -1.0 (left) to 1.0 (right)
-           center_x = bbox.xmin + (bbox.width / 2)
-           self.human_x_offset = (center_x - 0.5) * 2
-           
-           # Approximate face width in pixels for distance logic
-           self.face_pixel_width = bbox.width * frame.shape[1]
-           
-           # Draw for the debug stream
-           self.mp_drawing.draw_detection(frame, detection)
-       else:
-           self.lost_tracker_count += 1
-           if self.lost_tracker_count > 10: 
-               self.human_detected = False
-               self.face_pixel_width = 0
+                   # Normalize offset: -1.0 (left) to 1.0 (right)
+                   center_x = bbox.xmin + (bbox.width / 2)
+                   self.human_x_offset = (center_x - 0.5) * 2
+                   
+                   # Approximate face width in pixels for distance logic
+                   self.face_pixel_width = bbox.width * frame.shape[1]
+                   
+                   # Draw for the debug stream
+                   self.mp_drawing.draw_detection(frame, detection)
+               else:
+                   self.lost_tracker_count += 1
+                   if self.lost_tracker_count > 10: 
+                       self.human_detected = False
+                       self.face_pixel_width = 0
 
         # ArUco Detection Logic
         if self.detector:
-            corners, ids, rejected = self.detector.detectMarkers(frame)
-        else:
-            corners, ids, rejected = cv2.aruco.detectMarkers(frame, self.aruco_dict, parameters=self.aruco_params)
+                    corners, ids, rejected = self.detector.detectMarkers(frame)
+                else:
+                    corners, ids, rejected = cv2.aruco.detectMarkers(frame, self.aruco_dict, parameters=self.aruco_params)
                     
         self.table_detected = False
         self.home_detected = False
@@ -342,8 +325,7 @@ class HostRobotLogic(Node):
         # Publish state for debugging
         if self.state != self.prev_state:
             self.state_pub.publish(String(data=self.state.name))
-            # self.prev_state = self.state
-        self.publish_status()
+            self.prev_state = self.state
 
 def main(args=None):
     rclpy.init(args=args)
